@@ -184,4 +184,100 @@ function generate_read_function(reader_type, machine, init_code, actions; kwargs
     end
 end
 
+
+# Reader generator based on TranscodingStreams.jl
+# -----------------------------------------------
+
+import TranscodingStreams
+
+"""
+    @mark
+
+Mark the current position to keep the buffered data.
+"""
+macro mark()
+    esc(:(buffer.markpos = p))
+end
+
+"""
+    @unmark
+
+Unmark the buffer.
+"""
+macro unmark()
+    esc(:(buffer.markpos = 0))
+end
+
+"""
+    @pos
+
+Get the current position relative to the marked position.
+"""
+macro pos()
+    esc(:(p - buffer.markpos + 1))
+end
+
+"""
+    generate_readrecord_function(T, machine, actions, initcode, exitcode, kwargs...)
+
+Generate a `readrecord!(stream::TranscodingStream, record::T, state)` function.
+"""
+function generate_readrecord_function(rectyp::DataType,
+                                      machine::Automa.Machine,
+                                      actions::Dict{Symbol,Expr},
+                                      initcode::Expr,
+                                      exitcode::Expr;
+                                      kwargs...)
+    kwargs = Dict(kwargs)
+    context = Automa.CodeGenContext(
+        generator=get(kwargs, :generator, :goto),
+        checkbounds=get(kwargs, :checkbounds, false),
+        loopunroll=get(kwargs, :loopunroll, 0),
+    )
+    quote
+        function readrecord!(stream::$(TranscodingStreams.TranscodingStream), record::$(rectyp), state)
+            @assert !ismarked(stream)
+
+            # Initialize variables.
+            buffer = stream.state.buffer1
+            data = buffer.data
+            $(Automa.generate_init_code(context, machine))
+            $(initcode)
+
+            # Make that the stream is in the read mode.
+            read(stream, 0)
+
+            # Start parsing.
+            while true
+                __eof__ = eof(stream)  # `eof` refills the buffer
+                p = buffer.bufferpos
+                p_end = buffer.marginpos - 1
+                if __eof__
+                    p_eof = p_end
+                end
+                #print("before: "); @show cs, p, p_end, p_eof
+                # The data buffer must not be moved within the generated code below!
+                $(Automa.generate_exec_code(context, machine, actions))
+                #print(" after: "); @show cs, p, p_end, p_eof
+
+                # Restore consistency.
+                let
+                    markpos = buffer.markpos
+                    skip(stream, p - buffer.bufferpos)
+                    shift = markpos - buffer.markpos
+                    @assert shift ≥ 0
+                    p -= shift
+                    p_end -= shift
+                    if p_eof ≥ 0
+                        p_eof -= shift
+                    end
+                end
+
+                # Exit or repeat.
+                $(exitcode)
+            end
+        end
+    end
+end
+
 end
