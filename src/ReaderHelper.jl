@@ -249,11 +249,12 @@ function generate_readrecord_function(rectyp::DataType,
 
             # Start parsing.
             while true
-                __eof__ = eof(stream)  # `eof` refills the buffer
-                p = buffer.bufferpos
-                p_end = buffer.marginpos - 1
-                if __eof__
-                    p_eof = p_end
+                let eof = eof(stream)  # `eof` refills the buffer
+                    p = buffer.bufferpos
+                    p_end = buffer.marginpos - 1
+                    if eof
+                        p_eof = p_end
+                    end
                 end
                 #print("before: "); @show cs, p, p_end, p_eof
                 # The data buffer must not be moved within the generated code below!

@@ -2,4 +2,4 @@ julia 0.6
 Compat 0.17
 Automa 0.3
 BufferedStreams
-TranscodingStreams 0.3
+TranscodingStreams 0.4
