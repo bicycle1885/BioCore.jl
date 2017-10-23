@@ -217,6 +217,8 @@ macro pos()
     esc(:(p - buffer.markpos + 1))
 end
 
+function readrecord! end
+
 """
     generate_readrecord_function(T, machine, actions, initcode, exitcode, kwargs...)
 
@@ -279,6 +281,82 @@ function generate_readrecord_function(rectyp::DataType,
             end
         end
     end
+end
+
+# Iterator of records.
+struct RecordIterator{T}
+    # input stream
+    stream::TranscodingStreams.TranscodingStream
+
+    # return a copy?
+    copy::Bool
+
+    # close stream at the end?
+    close::Bool
+
+    # placeholder of record
+    record::T
+
+    function RecordIterator{T}(stream::IO; copy::Bool=true, close::Bool=false) where T
+        if !(stream isa TranscodingStreams.TranscodingStream)
+            stream = TranscodingStreams.NoopStream(stream)
+        end
+        return new(stream, copy, close, T())
+    end
+end
+
+function Base.iteratorsize(::Type{<:RecordIterator})
+    return Base.SizeUnknown()
+end
+
+function Base.eltype(::Type{RecordIterator{T}}) where T
+    return T
+end
+
+function Base.show(io::IO, iter::RecordIterator)
+    print(io, summary(iter), "(<copy=$(iter.copy),close=$(iter.close)>)")
+end
+
+# State of RecordIterator.
+mutable struct RecordIteratorState
+    # the current line number
+    linenum::Int
+
+    # read a new record?
+    read::Bool
+
+    # consumed all input?
+    done::Bool
+
+    function RecordIteratorState()
+        return new(1, false, false)
+    end
+end
+
+function Base.start(iter::RecordIterator)
+    return RecordIteratorState()
+end
+
+function Base.done(iter::RecordIterator, state::RecordIteratorState)
+    if state.done
+        return true
+    elseif !state.read
+        readrecord!(iter.stream, iter.record, state)
+        if iter.close && state.done
+            close(iter.stream)
+        end
+    end
+    return !state.read
+end
+
+function Base.next(iter::RecordIterator, state::RecordIteratorState)
+    @assert state.read
+    record = iter.record
+    if iter.copy
+        record = copy(record)
+    end
+    state.read = false
+    return record, state
 end
 
 end
